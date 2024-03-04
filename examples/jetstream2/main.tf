@@ -86,6 +86,24 @@ variable "node_count" {
   default = 1
 }
 
+variable "nfs_home_size" {
+  type = number
+  description = "size of nfs home volume"
+  default = 100
+}
+
+variable "nfs_project_size" {
+  type = number
+  description = "size of nfs project volume"
+  default = 100
+}
+
+variable "nfs_scratch_size" {
+  type = number
+  description = "size of nfs scratch volume"
+  default = 100
+}
+
 variable "guest_users_count" {
   type = number
   description = "number of guest users"
@@ -116,12 +134,6 @@ variable "cacao_user_data" {
   default = ""
 }
 
-# variable "cacao_public_key" {
-#   type = string
-#   description = "if set, will be an additional key used"
-#   default = ""
-# }
-
 variable "cacao_whitelist_ips" {
   type = string
   description = "comma-separated list of ips to whitelist to fail2ban"
@@ -134,7 +146,7 @@ module "openstack" {
   config_version = "main"
 
   cluster_name = var.instance_name
-  domain       = "${var.project}.${var.domain_name}"
+  domain       = lower("${var.project}.${var.domain_name}")
   image        = var.image_name
 
   instances = {
@@ -151,9 +163,9 @@ module "openstack" {
 
   volumes = {
     nfs = {
-      home     = { size = 100 }
-      project  = { size = 50 }
-      scratch  = { size = 50 }
+      home     = { size = var.nfs_home_size }
+      project  = { size = var.nfs_project_size }
+      scratch  = { size = var.nfs_home_size }
     }
   }
 
@@ -217,19 +229,21 @@ resource "null_resource" "cacao_helper_scripts" {
 #!/bin/bash
 
 bold=$(tput bold)
-normal=$(tput sgr0)
+normal="\e[1;0m"
 magenta_bold="\e[1;35m"
+green_bold="\e[1;32m"
 yellow_bold="\e[1;33m"
 
 # redirecting stdout to stderr to prevent file transfer problems
 echo -e "\nWelcome to the Magic Castle login node!\n" 1>&2
-CURRENT_STATE="$(mccheck)"
-echo -e "Magic Castle's current state is $CURRENT_STATE" 1>&2
-if [ "$CURRENT_STATE" == *"NOT READY"* ]; then
+
+CURRENT_STATE="$(mccheck -n)"
+if [ "$CURRENT_STATE" = "NOT READY" ]; then
+    echo -e "Magic Castle's current state is $${yellow_bold}$CURRENT_STATE$${normal}" 1>&2
     echo -e "You may want to grab some coffee while you wait." 1>&2
     echo -e "Most recent puppet activity: $(journalctl -u puppet|tail -1)\n" 1>&2
 else
-    echo -e "" 1>&2
+    echo -e "Magic Castle's current state is $${green_bold}$CURRENT_STATE$${normal}\n" 1>&2
 fi
 echo -e "To re-check Magic Castle state: $${magenta_bold}mccheck$${normal}" 1>&2
 echo -e "Account info for this cluster: $${magenta_bold}/edwin/accounts.txt$${normal}\n" 1>&2
@@ -240,17 +254,29 @@ EOT
   provisioner "file" {
     content = <<-EOT
 #!/bin/bash
-yellow_bold="\e[1;33m"
 green_bold="\e[1;32m"
-normal=$(tput sgr0)
+yellow_bold="\e[1;33m"
+normal="\e[1;0m"
+
+# if $1 = "-n", the don't print color
+[[ $1 = "-n" ]] && COLOR=false || COLOR=true
+
 # check if magic castle has the following line
 # this simple test for now; until a better check is available, let's simply check for the final line
 # I'm sure a more robust check can be provided by more experienced MC folks :)
 journalctl -u puppet|grep -q 'Applied catalog in'
 if [ $? -ne 0 ]; then
-        echo "$${yellow_bold}NOT READY$${normal}"
+  if [ "$COLOR" = true ]; then
+    echo -e "$${yellow_bold}NOT READY$${normal}"
+  else
+    echo "NOT READY"
+  fi
 else
-        echo "$${green_bold}READY$${normal}"
+  if [ "$COLOR" = true ]; then
+    echo -e "$${green_bold}READY$${normal}"
+  else
+    echo "READY"
+  fi
 fi
 EOT
     destination = "/tmp/mccheck"
