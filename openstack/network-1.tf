@@ -4,12 +4,14 @@ data "openstack_networking_network_v2" "ext_network" {
 }
 
 data "openstack_networking_subnet_v2" "subnet" {
-  subnet_id  = var.subnet_id
+  # subnet_id  = var.subnet_id
+  network_id = data.openstack_networking_network_v2.int_network.id
   ip_version = 4
 }
 
 data "openstack_networking_network_v2" "int_network" {
-  network_id = data.openstack_networking_subnet_v2.subnet.network_id
+  # network_id = data.openstack_networking_subnet_v2.subnet.network_id
+  name = "auto_allocated_network"
 }
 
 locals {
